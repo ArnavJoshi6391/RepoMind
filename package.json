@@ -1,0 +1,24 @@
+{
+  "name": "repomind-monorepo",
+  "private": true,
+  "scripts": {
+    "build": "pnpm --recursive run build",
+    "dev": "pnpm --recursive --parallel run dev",
+    "test": "vitest run",
+    "typecheck": "pnpm --recursive run typecheck",
+    "lint": "pnpm --recursive run lint",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "db:push": "pnpm --filter @repomind/database run db:push",
+    "db:generate": "pnpm --filter @repomind/database run db:generate"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8",
+    "tsx": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}
