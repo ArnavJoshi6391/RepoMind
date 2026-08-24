@@ -1,4 +1,13 @@
 import { describe, it, expect, beforeAll } from "vitest";
+import dotenv from "dotenv";
+
+beforeAll(() => {
+  dotenv.config();
+  if (!process.env.DATABASE_URL) {
+    process.env.DATABASE_URL = "postgresql://repomind:repomind_pass@localhost:5432/repomind_db";
+  }
+});
+
 import { checkDatabaseConnection, checkPgVectorExtension } from "@repomind/database";
 import { checkRedisConnection, verifyBullMQ } from "@repomind/worker";
 import { buildApp } from "../apps/api/src/app.js";
