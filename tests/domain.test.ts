@@ -6,10 +6,12 @@ import {
   githubInstallations,
   repositories,
   indexingJobs,
-  codeChunks,
-  symbols,
 } from "@repomind/database";
 import { eq } from "drizzle-orm";
+
+function getRandomBigInt(): bigint {
+  return BigInt(Date.now()) * 1000n + BigInt(Math.floor(Math.random() * 1000));
+}
 
 beforeAll(async () => {
   dotenv.config();
@@ -23,15 +25,16 @@ describe("Phase 2 Domain Model & Schema Verification", () => {
   it("should create github_installations and associated repositories with precision-safe bigint IDs", async () => {
     const { db, sql } = createDbClient();
     try {
-      const installationIdNum = BigInt("998877665544332211");
-      const repoIdNum = BigInt("887766554433221100");
+      const installationIdNum = getRandomBigInt();
+      const repoIdNum = getRandomBigInt();
+      const accountIdNum = getRandomBigInt();
 
       const [inst] = await db
         .insert(githubInstallations)
         .values({
           githubInstallationId: installationIdNum,
-          accountId: BigInt("123456789"),
-          accountLogin: "test-org",
+          accountId: accountIdNum,
+          accountLogin: `test-org-${Date.now()}`,
           accountType: "Organization",
         })
         .returning();
@@ -45,9 +48,9 @@ describe("Phase 2 Domain Model & Schema Verification", () => {
         .values({
           githubRepoId: repoIdNum,
           installationId: inst.id,
-          owner: "test-org",
+          owner: `test-org-${Date.now()}`,
           name: "test-repo",
-          fullName: "test-org/test-repo",
+          fullName: `test-org-${Date.now()}/test-repo`,
           defaultBranch: "develop", // Custom non-main default branch
           status: "active",
         })
@@ -64,15 +67,16 @@ describe("Phase 2 Domain Model & Schema Verification", () => {
   it("should cascade delete repositories when parent github_installation is deleted", async () => {
     const { db, sql } = createDbClient();
     try {
-      const instId = BigInt("999111222333");
-      const repoId = BigInt("888111222333");
+      const instId = getRandomBigInt();
+      const repoId = getRandomBigInt();
+      const accountId = getRandomBigInt();
 
       const [inst] = await db
         .insert(githubInstallations)
         .values({
           githubInstallationId: instId,
-          accountId: BigInt("111222333"),
-          accountLogin: "cascade-org",
+          accountId: accountId,
+          accountLogin: `cascade-org-${Date.now()}`,
           accountType: "Organization",
         })
         .returning();
@@ -82,9 +86,9 @@ describe("Phase 2 Domain Model & Schema Verification", () => {
         .values({
           githubRepoId: repoId,
           installationId: inst.id,
-          owner: "cascade-org",
+          owner: `cascade-org-${Date.now()}`,
           name: "cascade-repo",
-          fullName: "cascade-org/cascade-repo",
+          fullName: `cascade-org-${Date.now()}/cascade-repo`,
           defaultBranch: "master",
         })
         .returning();
@@ -103,15 +107,16 @@ describe("Phase 2 Domain Model & Schema Verification", () => {
   it("should manage indexing_jobs lifecycle transitions (pending -> processing -> completed)", async () => {
     const { db, sql } = createDbClient();
     try {
-      const instId = BigInt("777111222");
-      const repoId = BigInt("666111222");
+      const instId = getRandomBigInt();
+      const repoId = getRandomBigInt();
+      const accountId = getRandomBigInt();
 
       const [inst] = await db
         .insert(githubInstallations)
         .values({
           githubInstallationId: instId,
-          accountId: BigInt("555111222"),
-          accountLogin: "job-org",
+          accountId: accountId,
+          accountLogin: `job-org-${Date.now()}`,
           accountType: "User",
         })
         .returning();
@@ -121,9 +126,9 @@ describe("Phase 2 Domain Model & Schema Verification", () => {
         .values({
           githubRepoId: repoId,
           installationId: inst.id,
-          owner: "job-org",
+          owner: `job-org-${Date.now()}`,
           name: "job-repo",
-          fullName: "job-org/job-repo",
+          fullName: `job-org-${Date.now()}/job-repo`,
           defaultBranch: "main",
         })
         .returning();

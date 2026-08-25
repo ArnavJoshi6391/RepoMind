@@ -3,10 +3,14 @@ import crypto from "node:crypto";
 import dotenv from "dotenv";
 import { verifyWebhookSignature } from "@repomind/github";
 import { buildApp } from "../apps/api/src/app.js";
-import { createDbClient, runMigrations, githubInstallations, repositories, githubWebhookDeliveries } from "@repomind/database";
+import { createDbClient, runMigrations, githubInstallations, repositories } from "@repomind/database";
 import { eq } from "drizzle-orm";
 
 const TEST_WEBHOOK_SECRET = "development_webhook_secret";
+
+function getRandomBigInt(): bigint {
+  return BigInt(Date.now()) * 1000n + BigInt(Math.floor(Math.random() * 1000));
+}
 
 function generateSignature(payload: Buffer | string, secret = TEST_WEBHOOK_SECRET): string {
   const hmac = crypto.createHmac("sha256", secret);
@@ -47,7 +51,7 @@ describe("Phase 2 GitHub Webhooks & Security Verification", () => {
       url: "/api/webhooks/github",
       headers: {
         "content-type": "application/json",
-        "x-github-delivery": `deliv-invalid-${Date.now()}`,
+        "x-github-delivery": `deliv-invalid-${Date.now()}-${Math.random()}`,
         "x-github-event": "push",
         "x-hub-signature-256": "sha256=bad_signature_value_12345678901234567890123456789012345678901234567890",
       },
@@ -60,7 +64,7 @@ describe("Phase 2 GitHub Webhooks & Security Verification", () => {
 
   it("should handle atomic duplicate delivery idempotency safely under concurrent requests", async () => {
     const app = await buildApp();
-    const deliveryId = `concurrent-delivery-${Date.now()}`;
+    const deliveryId = `concurrent-delivery-${Date.now()}-${Math.random()}`;
     const rawBuffer = Buffer.from(JSON.stringify({ zen: "Responsive is better than fast." }));
     const signature = generateSignature(rawBuffer);
 
@@ -107,15 +111,16 @@ describe("Phase 2 GitHub Webhooks & Security Verification", () => {
     const app = await buildApp();
 
     try {
-      const instId = BigInt("9900112233");
-      const repoId = BigInt("8800112233");
+      const instId = getRandomBigInt();
+      const repoId = getRandomBigInt();
+      const accountId = getRandomBigInt();
 
       const [inst] = await db
         .insert(githubInstallations)
         .values({
           githubInstallationId: instId,
-          accountId: BigInt("7700112233"),
-          accountLogin: "push-org",
+          accountId: accountId,
+          accountLogin: `push-org-${Date.now()}`,
           accountType: "Organization",
         })
         .returning();
@@ -123,9 +128,9 @@ describe("Phase 2 GitHub Webhooks & Security Verification", () => {
       await db.insert(repositories).values({
         githubRepoId: repoId,
         installationId: inst.id,
-        owner: "push-org",
+        owner: `push-org-${Date.now()}`,
         name: "push-repo",
-        fullName: "push-org/push-repo",
+        fullName: `push-org-${Date.now()}/push-repo`,
         defaultBranch: "main",
       });
 
@@ -134,7 +139,7 @@ describe("Phase 2 GitHub Webhooks & Security Verification", () => {
         after: "c0mm1t_sha_123456",
         repository: {
           id: Number(repoId),
-          full_name: "push-org/push-repo",
+          full_name: `push-org-${Date.now()}/push-repo`,
         },
         pusher: {
           name: "developer",
@@ -143,7 +148,7 @@ describe("Phase 2 GitHub Webhooks & Security Verification", () => {
 
       const rawBuffer = Buffer.from(JSON.stringify(pushPayload));
       const signature = generateSignature(rawBuffer);
-      const deliveryId = `push-deliv-${Date.now()}`;
+      const deliveryId = `push-deliv-${Date.now()}-${Math.random()}`;
 
       const res = await app.inject({
         method: "POST",
