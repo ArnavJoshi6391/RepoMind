@@ -7,6 +7,7 @@ export default defineConfig({
       "@repomind/shared": path.resolve(__dirname, "./packages/shared/src/index.ts"),
       "@repomind/database": path.resolve(__dirname, "./packages/database/src/index.ts"),
       "@repomind/worker": path.resolve(__dirname, "./packages/worker/src/index.ts"),
+      "@repomind/github": path.resolve(__dirname, "./packages/github/src/index.ts"),
     },
   },
   test: {

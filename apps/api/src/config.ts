@@ -11,6 +11,9 @@ const envSchema = z.object({
   DATABASE_URL: z.string({ required_error: "DATABASE_URL environment variable is required" }),
   REDIS_HOST: z.string().default("localhost"),
   REDIS_PORT: z.string().default("6379").transform((val) => parseInt(val, 10)),
+  GITHUB_APP_ID: z.string().optional(),
+  GITHUB_PRIVATE_KEY: z.string().optional(),
+  GITHUB_WEBHOOK_SECRET: z.string().default("development_webhook_secret"),
 });
 
 export const config = envSchema.parse(process.env);

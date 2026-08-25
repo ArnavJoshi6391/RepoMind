@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { registerHealthRoutes } from "./routes/health.js";
+import { registerWebhookRoutes } from "./routes/webhooks.js";
 import { config } from "./config.js";
 
 export async function buildApp() {
@@ -17,6 +18,7 @@ export async function buildApp() {
   });
 
   await registerHealthRoutes(app);
+  await registerWebhookRoutes(app);
 
   return app;
 }
