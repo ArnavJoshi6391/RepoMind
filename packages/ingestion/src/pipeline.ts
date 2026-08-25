@@ -5,7 +5,6 @@ import {
   parsedBlobs,
   snapshotFiles,
   repositorySnapshots,
-  indexingJobs,
 } from "@repomind/database";
 import { eq, and } from "drizzle-orm";
 import {
@@ -16,10 +15,12 @@ import {
   extractPythonSymbols,
   generateSymbolChunks,
   generateFallbackChunks,
+  type ExtractedSymbol,
+  type GeneratedChunk,
 } from "@repomind/parser";
-import { fetchRepositoryTree, fetchRawBlobContentWithAbort } from "./fetcher.js";
+import { fetchRepositoryTree, fetchRawBlobContentBounded } from "./fetcher.js";
 import { createSnapshot, promoteSnapshotIfNewer } from "./snapshot.js";
-import { claimBlobParsing, completeBlobParsing } from "./claim.js";
+import { claimBlobParsing, renewBlobClaimLease, completeBlobParsing } from "./claim.js";
 
 export interface IngestionOptions {
   octokit: Octokit;
@@ -29,22 +30,27 @@ export interface IngestionOptions {
   commitSha: string;
   workerId?: string;
   dbClient?: any;
+  customStreamFetcher?: (blobSha: string) => NodeJS.ReadableStream;
+  slowParseDelayMs?: number; // Optional delay to simulate long-running parsing in tests
+  simulatedOwnershipRevocation?: boolean; // Test injection flag for lost ownership testing
 }
 
-export async function runIngestionPipeline(options: IngestionOptions): Promise<{
+export interface IngestionResult {
   snapshotId: string;
   generation: bigint;
   promoted: boolean;
   totalFiles: number;
   parsedFiles: number;
   reusedBlobs: number;
-}> {
+}
+
+export async function runIngestionPipeline(options: IngestionOptions): Promise<IngestionResult> {
   const workerId = options.workerId || `worker-${process.pid}`;
   const dbClient = options.dbClient || createDbClient();
-  const { db } = dbClient;
+  const db = dbClient.db || dbClient;
 
   // Step 1: Create repository snapshot with assigned generation counter
-  const { snapshotId, generation } = await createSnapshot(db, options.repositoryId, options.commitSha);
+  const { snapshotId, generation } = await createSnapshot(dbClient, options.repositoryId, options.commitSha);
 
   await db
     .update(repositorySnapshots)
@@ -80,21 +86,22 @@ export async function runIngestionPipeline(options: IngestionOptions): Promise<{
         .limit(1);
 
       if (!existingBlob && !file.isOversized) {
-        // Fetch raw blob content safely
-        const content = await fetchRawBlobContentWithAbort(
+        // Fetch raw blob content safely using bounded stream fetcher
+        const fetchResult = await fetchRawBlobContentBounded(
           options.octokit,
           options.owner,
           options.repo,
-          file.blobSha
+          file.blobSha,
+          options.customStreamFetcher
         );
 
-        if (content !== null) {
+        if (!fetchResult.aborted && fetchResult.content !== null && !fetchResult.isBinary) {
           await db
             .insert(gitBlobs)
             .values({
               blobSha: file.blobSha,
-              size: file.size,
-              content,
+              size: file.size || fetchResult.bytesReceived,
+              content: fetchResult.content,
               isBinary: false,
             })
             .onConflictDoNothing({ target: gitBlobs.blobSha });
@@ -104,7 +111,7 @@ export async function runIngestionPipeline(options: IngestionOptions): Promise<{
             .insert(gitBlobs)
             .values({
               blobSha: file.blobSha,
-              size: file.size,
+              size: file.size || fetchResult.bytesReceived,
               content: "",
               isBinary: true,
             })
@@ -151,40 +158,92 @@ export async function runIngestionPipeline(options: IngestionOptions): Promise<{
         );
 
         if (claim.claimed) {
-          const [blob] = await db
-            .select()
-            .from(gitBlobs)
-            .where(eq(gitBlobs.blobSha, file.blobSha))
-            .limit(1);
+          let heartbeatTimer: NodeJS.Timeout | null = null;
+          let isLeaseValid = true;
 
-          if (blob && !blob.isBinary && blob.content) {
-            const lang = detectLanguage(file.filePath);
-            let symbols: any[] = [];
-            let chunks: any[] = [];
+          if (options.simulatedOwnershipRevocation) {
+            isLeaseValid = false;
+          }
 
-            if (lang === "typescript" || lang === "javascript") {
-              symbols = extractTypeScriptSymbols(blob.content);
-              chunks = generateSymbolChunks(file.blobSha, blob.content, symbols);
-            } else if (lang === "python") {
-              symbols = extractPythonSymbols(blob.content);
-              chunks = generateSymbolChunks(file.blobSha, blob.content, symbols);
-            } else {
-              chunks = generateFallbackChunks(file.blobSha, blob.content);
+          try {
+            // WIRE HEARTBEAT MECHANISM: Renew lease every 20s while parsing is active
+            heartbeatTimer = setInterval(async () => {
+              if (options.simulatedOwnershipRevocation) {
+                isLeaseValid = false;
+                if (heartbeatTimer) clearInterval(heartbeatTimer);
+                return;
+              }
+
+              const renewed = await renewBlobClaimLease(
+                db,
+                file.blobSha,
+                PARSER_VERSION,
+                CHUNKER_VERSION,
+                claim.claimToken
+              );
+
+              if (!renewed) {
+                isLeaseValid = false;
+                if (heartbeatTimer) clearInterval(heartbeatTimer);
+              }
+            }, 20 * 1000);
+
+            // Fetch stored blob content
+            const [blob] = await db
+              .select()
+              .from(gitBlobs)
+              .where(eq(gitBlobs.blobSha, file.blobSha))
+              .limit(1);
+
+            if (blob && !blob.isBinary && blob.content) {
+              if (options.slowParseDelayMs) {
+                await new Promise((resolve) => setTimeout(resolve, options.slowParseDelayMs));
+              }
+
+              // Verify lease validity before AST parsing and completion
+              if (!isLeaseValid) {
+                // Lost ownership! Abort immediately without calling completeBlobParsing
+                continue;
+              }
+
+              const lang = detectLanguage(file.filePath);
+              let symbols: ExtractedSymbol[] = [];
+              let chunks: GeneratedChunk[] = [];
+
+              if (lang === "typescript" || lang === "javascript") {
+                symbols = extractTypeScriptSymbols(blob.content);
+                chunks = generateSymbolChunks(file.blobSha, blob.content, symbols);
+              } else if (lang === "python") {
+                symbols = extractPythonSymbols(blob.content);
+                chunks = generateSymbolChunks(file.blobSha, blob.content, symbols);
+              } else {
+                chunks = generateFallbackChunks(file.blobSha, blob.content);
+              }
+
+              // Final lease check before committing artifacts
+              if (!isLeaseValid) {
+                continue;
+              }
+
+              // Step 6: Complete blob parsing with ownership token validation
+              const committed = await completeBlobParsing(
+                db,
+                file.blobSha,
+                PARSER_VERSION,
+                CHUNKER_VERSION,
+                claim.claimToken,
+                symbols,
+                chunks
+              );
+
+              if (committed) {
+                parsedFiles++;
+              }
             }
-
-            // Step 6: Complete blob parsing with ownership token validation
-            const committed = await completeBlobParsing(
-              db,
-              file.blobSha,
-              PARSER_VERSION,
-              CHUNKER_VERSION,
-              claim.claimToken,
-              symbols,
-              chunks
-            );
-
-            if (committed) {
-              parsedFiles++;
+          } finally {
+            // Clean up heartbeat timer in ALL cases
+            if (heartbeatTimer) {
+              clearInterval(heartbeatTimer);
             }
           }
         }
@@ -193,7 +252,7 @@ export async function runIngestionPipeline(options: IngestionOptions): Promise<{
 
     // Step 7: Promote snapshot to canonical ACTIVE status if generation is newer
     const promoted = await promoteSnapshotIfNewer(
-      db,
+      dbClient,
       options.repositoryId,
       snapshotId,
       generation,

@@ -12,17 +12,17 @@ import {
   claimBlobParsing,
   renewBlobClaimLease,
   completeBlobParsing,
+  classifyBlobContent,
 } from "@repomind/ingestion";
 import {
   extractTypeScriptSymbols,
   extractPythonSymbols,
   generateSymbolChunks,
   generateFallbackChunks,
-  generateLengthDelimitedChunkHash,
   PARSER_VERSION,
   CHUNKER_VERSION,
 } from "@repomind/parser";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import crypto from "node:crypto";
 
 function getRandomSha(): string {
@@ -37,7 +37,7 @@ beforeAll(async () => {
   await runMigrations();
 });
 
-describe("Phase 3 Parser & Atomic Claim Protocol Tests", () => {
+describe("Phase 3 Parser, Claims, Heartbeat & Binary Safety Tests", () => {
   it("Test 1: Normal parsed_blob claim protocol", async () => {
     const { db, sql } = createDbClient();
     try {
@@ -72,7 +72,7 @@ describe("Phase 3 Parser & Atomic Claim Protocol Tests", () => {
     }
   });
 
-  it("Test 3: Heartbeat lease renewal extends leaseUntil", async () => {
+  it("Test 3: Heartbeat lease renewal extends leaseUntil and prevents premature reclamation", async () => {
     const { db, sql } = createDbClient();
     try {
       const blobSha = getRandomSha();
@@ -82,6 +82,10 @@ describe("Phase 3 Parser & Atomic Claim Protocol Tests", () => {
       const renewed = await renewBlobClaimLease(db, blobSha, PARSER_VERSION, CHUNKER_VERSION, claim.claimToken);
 
       expect(renewed).toBe(true);
+
+      // Attempt by worker 2 to claim active renewed lease should be rejected
+      const claim2 = await claimBlobParsing(db, blobSha, PARSER_VERSION, CHUNKER_VERSION, "worker-2");
+      expect(claim2.claimed).toBe(false);
     } finally {
       await sql.end();
     }
@@ -147,7 +151,32 @@ describe("Phase 3 Parser & Atomic Claim Protocol Tests", () => {
     }
   });
 
-  it("Test 6: AST Symbol extraction & chunking for TypeScript and Python", async () => {
+  it("Test 6: Binary & UTF-8 Safety Classification", () => {
+    // 1. NUL-byte containing content
+    const nulBuf = Buffer.from([0x66, 0x6f, 0x6f, 0x00, 0x62, 0x61, 0x72]);
+    const resNul = classifyBlobContent(nulBuf);
+    expect(resNul.isBinary).toBe(true);
+    expect(resNul.reason).toBe("NUL_BYTE_DETECTED");
+
+    // 2. Invalid UTF-8 bytes
+    const invalidUtf8Buf = Buffer.from([0x80, 0x81, 0x82, 0xff]);
+    const resInvalid = classifyBlobContent(invalidUtf8Buf);
+    expect(resInvalid.isBinary).toBe(true);
+    expect(resInvalid.reason).toBe("INVALID_UTF8");
+
+    // 3. Normal UTF-8 source code
+    const validUtf8Buf = Buffer.from("export function hello(): string { return 'world'; }");
+    const resValid = classifyBlobContent(validUtf8Buf);
+    expect(resValid.isBinary).toBe(false);
+    expect(resValid.utf8Text).toContain("hello");
+
+    // 4. Binary buffer with high non-printable ratio
+    const nonPrintableBuf = Buffer.from(Array.from({ length: 100 }, (_, i) => (i % 2 === 0 ? 1 : 2)));
+    const resNonPrintable = classifyBlobContent(nonPrintableBuf);
+    expect(resNonPrintable.isBinary).toBe(true);
+  });
+
+  it("Test 7: AST Symbol extraction & chunking for TypeScript and Python", () => {
     const tsCode = `
 export class UserService {
   async getUser(id: string) {
@@ -174,7 +203,7 @@ class Calculator:
     expect(pySymbols[0].name).toBe("Calculator");
   });
 
-  it("Test 7: Multi-version parsing under v1.0.0 and v2.0.0 produces separate artifacts", async () => {
+  it("Test 8: Multi-version parsing under v1.0.0 and v2.0.0 produces separate artifacts", async () => {
     const { db, sql } = createDbClient();
     try {
       const blobSha = getRandomSha();

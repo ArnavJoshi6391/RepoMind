@@ -1,6 +1,8 @@
-import { parsedBlobs, blobSymbols, blobChunks, gitBlobs } from "@repomind/database";
-import { eq, and, or, lt, sql } from "drizzle-orm";
+import { parsedBlobs, blobSymbols, blobChunks, type NewBlobSymbol, type NewBlobChunk } from "@repomind/database";
+import { eq, and, or, lt } from "drizzle-orm";
 import crypto from "node:crypto";
+import type { ExtractedSymbol } from "@repomind/parser";
+import type { GeneratedChunk } from "@repomind/parser";
 
 export interface BlobClaimResult {
   claimed: boolean;
@@ -95,8 +97,8 @@ export async function completeBlobParsing(
   parserVersion: string,
   chunkerVersion: string,
   claimToken: string,
-  symbols: any[],
-  chunks: any[]
+  symbols: ExtractedSymbol[],
+  chunks: GeneratedChunk[]
 ): Promise<boolean> {
   try {
     return await db.transaction(async (tx: any) => {
@@ -126,32 +128,30 @@ export async function completeBlobParsing(
       }
 
       if (symbols.length > 0) {
-        await tx.insert(blobSymbols).values(
-          symbols.map((s) => ({
-            blobSha,
-            parserVersion,
-            name: s.name,
-            kind: s.kind,
-            startLine: s.startLine,
-            endLine: s.endLine,
-            containerName: s.containerName || null,
-          }))
-        );
+        const symbolValues: NewBlobSymbol[] = symbols.map((s) => ({
+          blobSha,
+          parserVersion,
+          name: s.name,
+          kind: s.kind,
+          startLine: s.startLine,
+          endLine: s.endLine,
+          containerName: s.containerName || null,
+        }));
+        await tx.insert(blobSymbols).values(symbolValues);
       }
 
       if (chunks.length > 0) {
-        await tx.insert(blobChunks).values(
-          chunks.map((c) => ({
-            blobSha,
-            parserVersion,
-            chunkerVersion,
-            chunkHash: c.chunkHash,
-            symbolName: c.symbolName || null,
-            startLine: c.startLine,
-            endLine: c.endLine,
-            content: c.content,
-          }))
-        ).onConflictDoNothing({ target: blobChunks.chunkHash });
+        const chunkValues: NewBlobChunk[] = chunks.map((c) => ({
+          blobSha,
+          parserVersion,
+          chunkerVersion,
+          chunkHash: c.chunkHash,
+          symbolName: c.symbolName || null,
+          startLine: c.startLine,
+          endLine: c.endLine,
+          content: c.content,
+        }));
+        await tx.insert(blobChunks).values(chunkValues).onConflictDoNothing({ target: blobChunks.chunkHash });
       }
 
       return true;
