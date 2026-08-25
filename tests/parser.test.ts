@@ -128,7 +128,7 @@ describe("Phase 3 Parser, Claims, Heartbeat & Binary Safety Tests", () => {
 
       const claim = await claimBlobParsing(db, blobSha, PARSER_VERSION, CHUNKER_VERSION, "worker-1");
 
-      // Simulate lost ownership by overwriting claimToken
+      // Simulate lost ownership by overwriting claimToken (e.g. Worker B reclaimed stale lease)
       await db.update(parsedBlobs).set({ claimToken: crypto.randomUUID() }).where(eq(parsedBlobs.blobSha, blobSha));
 
       const committed = await completeBlobParsing(
@@ -151,7 +151,7 @@ describe("Phase 3 Parser, Claims, Heartbeat & Binary Safety Tests", () => {
     }
   });
 
-  it("Test 6: Binary & UTF-8 Safety Classification", () => {
+  it("Test 6: Binary & UTF-8 Safety Classification & Unicode False-Positive Verification", () => {
     // 1. NUL-byte containing content
     const nulBuf = Buffer.from([0x66, 0x6f, 0x6f, 0x00, 0x62, 0x61, 0x72]);
     const resNul = classifyBlobContent(nulBuf);
@@ -170,10 +170,25 @@ describe("Phase 3 Parser, Claims, Heartbeat & Binary Safety Tests", () => {
     expect(resValid.isBinary).toBe(false);
     expect(resValid.utf8Text).toContain("hello");
 
-    // 4. Binary buffer with high non-printable ratio
+    // 4. Unicode source code, non-ASCII comments & Markdown (MUST NOT be classified as binary!)
+    const unicodeSourceBuf = Buffer.from(`
+// French: Café, Resumé, Spanish: Niño, German: Über
+const 变量 = "中文测试";
+/* Multilingual Markdown: 日本語, Русский, Emoji 🚀 */
+export function greet(name: string): string {
+  return \`こんにちは, \${name}!\`;
+}
+`);
+    const resUnicode = classifyBlobContent(unicodeSourceBuf);
+    expect(resUnicode.isBinary).toBe(false);
+    expect(resUnicode.utf8Text).toContain("Café");
+    expect(resUnicode.utf8Text).toContain("中文测试");
+
+    // 5. Binary buffer with high non-printable control character ratio (>30%)
     const nonPrintableBuf = Buffer.from(Array.from({ length: 100 }, (_, i) => (i % 2 === 0 ? 1 : 2)));
     const resNonPrintable = classifyBlobContent(nonPrintableBuf);
     expect(resNonPrintable.isBinary).toBe(true);
+    expect(resNonPrintable.reason).toBe("HIGH_NON_PRINTABLE_RATIO");
   });
 
   it("Test 7: AST Symbol extraction & chunking for TypeScript and Python", () => {
