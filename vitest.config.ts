@@ -8,6 +8,8 @@ export default defineConfig({
       "@repomind/database": path.resolve(__dirname, "./packages/database/src/index.ts"),
       "@repomind/worker": path.resolve(__dirname, "./packages/worker/src/index.ts"),
       "@repomind/github": path.resolve(__dirname, "./packages/github/src/index.ts"),
+      "@repomind/parser": path.resolve(__dirname, "./packages/parser/src/index.ts"),
+      "@repomind/ingestion": path.resolve(__dirname, "./packages/ingestion/src/index.ts"),
     },
   },
   test: {
