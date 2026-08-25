@@ -23,3 +23,12 @@ export const DummyJobPayloadSchema = z.object({
 });
 
 export type DummyJobPayload = z.infer<typeof DummyJobPayloadSchema>;
+
+export const RepositoryStatusSchema = z.enum(["active", "paused", "archived", "deleted"]);
+export type RepositoryStatus = z.infer<typeof RepositoryStatusSchema>;
+
+export const IndexingJobStatusSchema = z.enum(["pending", "processing", "completed", "failed"]);
+export type IndexingJobStatus = z.infer<typeof IndexingJobStatusSchema>;
+
+export const WebhookDeliveryStatusSchema = z.enum(["received", "processed", "failed"]);
+export type WebhookDeliveryStatus = z.infer<typeof WebhookDeliveryStatusSchema>;
