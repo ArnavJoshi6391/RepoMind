@@ -1,7 +1,8 @@
-import { pgTable, uuid, text, integer, timestamp, pgEnum, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, timestamp, index } from "drizzle-orm/pg-core";
 import { repositories } from "./repositories";
+import { symbolKindEnum } from "./blob_symbols";
 
-export const symbolKindEnum = pgEnum("symbol_kind", ["function", "class", "interface", "variable", "method", "type"]);
+export { symbolKindEnum };
 
 export const symbols = pgTable(
   "symbols",

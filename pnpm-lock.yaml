@@ -139,6 +139,62 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  packages/ingestion:
+    dependencies:
+      '@octokit/rest':
+        specifier: ^21.1.1
+        version: 21.1.1
+      '@repomind/database':
+        specifier: workspace:*
+        version: link:../database
+      '@repomind/github':
+        specifier: workspace:*
+        version: link:../github
+      '@repomind/parser':
+        specifier: workspace:*
+        version: link:../parser
+      '@repomind/shared':
+        specifier: workspace:*
+        version: link:../shared
+      drizzle-orm:
+        specifier: ^0.39.3
+        version: 0.39.3(postgres@3.4.9)
+      octokit:
+        specifier: ^4.1.2
+        version: 4.1.4
+      postgres:
+        specifier: ^3.4.5
+        version: 3.4.9
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.13.5
+        version: 22.20.1
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  packages/parser:
+    dependencies:
+      '@repomind/shared':
+        specifier: workspace:*
+        version: link:../shared
+      web-tree-sitter:
+        specifier: ^0.22.6
+        version: 0.22.6
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.13.5
+        version: 22.20.1
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   packages/shared:
     dependencies:
       zod:
@@ -1991,6 +2047,9 @@ packages:
       jsdom:
         optional: true
 
+  web-tree-sitter@0.22.6:
+    resolution: {integrity: sha512-hS87TH71Zd6mGAmYCvlgxeGDjqd9GTeqXNqTT+u0Gs51uIozNIaaq/kUAbV/Zf56jb2ZOyG8BxZs2GG9wbLi6Q==}
+
   which@4.0.0:
     resolution: {integrity: sha512-GlaYyEb07DPxYCKhKzplCWBJtvxZcZMrL+4UkrTSJHHPyZU4mYYTv3qaOe77H7EODLSSopAUFAc6W8U4yqvscg==}
     engines: {node: ^16.13.0 || >=18.0.0}
@@ -3464,6 +3523,8 @@ snapshots:
       - sugarss
       - supports-color
       - terser
+
+  web-tree-sitter@0.22.6: {}
 
   which@4.0.0:
     dependencies:
